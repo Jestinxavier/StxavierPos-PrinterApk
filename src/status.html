@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>POS Bridge Status</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Sora:wght@400;600;700&display=swap');
+
+  :root {
+    --bg:       #0f1117;
+    --surface:  #1a1d27;
+    --border:   #2a2d3a;
+    --green:    #22c55e;
+    --red:      #ef4444;
+    --amber:    #f59e0b;
+    --blue:     #3b82f6;
+    --text:     #e2e8f0;
+    --muted:    #64748b;
+    --radius:   10px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Sora', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    border-radius: 14px;
+    overflow: hidden;
+    user-select: none;
+    -webkit-app-region: drag;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .titlebar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .titlebar h1 {
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: var(--text);
+  }
+
+  .titlebar span { font-size: 11px; color: var(--muted); }
+
+  .close-btn {
+    -webkit-app-region: no-drag;
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: var(--red);
+    border: none;
+    cursor: pointer;
+    font-size: 13px;
+    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0.8;
+    transition: opacity .15s;
+  }
+  .close-btn:hover { opacity: 1; }
+
+  .content {
+    flex: 1;
+    padding: 18px;
+    overflow-y: auto;
+    -webkit-app-region: no-drag;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    margin-bottom: 12px;
+  }
+
+  .card-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+
+  .status-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .status-row:last-child { margin-bottom: 0; }
+
+  .status-key { font-size: 13px; color: var(--muted); }
+  .status-val {
+    font-size: 13px;
+    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+  }
+  .dot-green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .dot-red   { background: var(--red);   box-shadow: 0 0 6px var(--red); }
+  .dot-amber { background: var(--amber); box-shadow: 0 0 4px var(--amber); }
+
+  .green { color: var(--green); }
+  .red   { color: var(--red); }
+  .amber { color: var(--amber); }
+  .blue  { color: var(--blue); }
+
+  .btn-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 4px;
+  }
+
+  button {
+    -webkit-app-region: no-drag;
+    border: none;
+    border-radius: 7px;
+    padding: 9px 16px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: 'Sora', sans-serif;
+    cursor: pointer;
+    transition: opacity .15s, transform .1s;
+    flex: 1;
+  }
+  button:hover   { opacity: 0.85; }
+  button:active  { transform: scale(.97); }
+
+  .btn-start { background: var(--green); color: #000; }
+  .btn-stop  { background: var(--red);   color: #fff; }
+  .btn-refresh { background: var(--border); color: var(--text); }
+
+  .endpoint-box {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    background: #0a0d14;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    color: var(--blue);
+    margin-top: 4px;
+    line-height: 1.7;
+  }
+
+  .pulse {
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.4; }
+  }
+</style>
+</head>
+<body>
+
+<div class="titlebar">
+  <h1>🖨 POS Bridge</h1>
+  <span>v1.0.0</span>
+  <button class="close-btn" onclick="window.close()">✕</button>
+</div>
+
+<div class="content">
+
+  <!-- Service Status -->
+  <div class="card">
+    <div class="card-label">Service Status</div>
+    <div class="status-row">
+      <span class="status-key">Bridge Server</span>
+      <span class="status-val" id="srv-status">—</span>
+    </div>
+    <div class="status-row">
+      <span class="status-key">Listening on</span>
+      <span class="status-val blue" id="srv-port">—</span>
+    </div>
+    <div class="status-row">
+      <span class="status-key">Printer</span>
+      <span class="status-val" id="printer-status">—</span>
+    </div>
+    <div class="status-row">
+      <span class="status-key">Receipts printed</span>
+      <span class="status-val" id="print-count">0</span>
+    </div>
+    <div class="status-row">
+      <span class="status-key">Last print</span>
+      <span class="status-val muted" id="last-print" style="font-size:11px;">—</span>
+    </div>
+  </div>
+
+  <!-- Endpoints -->
+  <div class="card">
+    <div class="card-label">API Endpoints</div>
+    <div class="endpoint-box" id="endpoint-box">
+      GET  http://localhost:3000/status<br>
+      POST http://localhost:3000/print<br>
+      POST http://localhost:3000/cashdrawer
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="card">
+    <div class="card-label">Controls</div>
+    <div class="btn-row">
+      <button class="btn-start" id="btn-start" onclick="startSrv()">▶ Start</button>
+      <button class="btn-stop"  id="btn-stop"  onclick="stopSrv()">■ Stop</button>
+      <button class="btn-refresh" onclick="refresh()">↻ Refresh</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  async function refresh() {
+    const s = await window.posbridge.getStatus();
+    const bridgeUrl = s.bridge?.url || 'http://localhost:3000';
+    const bridgeLabel = s.bridge ? `localhost:${s.bridge.port} (${(s.bridge.protocol || 'http').toUpperCase()})` : 'localhost:3000';
+
+    // Service
+    const srvEl = document.getElementById('srv-status');
+    srvEl.innerHTML = s.serverRunning
+      ? '<span class="dot dot-green pulse"></span><span class="green">Running</span>'
+      : '<span class="dot dot-red"></span><span class="red">Stopped</span>';
+
+    document.getElementById('srv-port').textContent = s.serverRunning ? bridgeLabel : '—';
+    document.getElementById('endpoint-box').innerHTML = [
+      `GET  ${bridgeUrl}/status`,
+      `POST ${bridgeUrl}/print`,
+      `POST ${bridgeUrl}/cashdrawer`,
+    ].join('<br>');
+
+    // Printer
+    const pEl = document.getElementById('printer-status');
+    pEl.innerHTML = s.printerConnected
+      ? '<span class="dot dot-green"></span><span class="green">Connected</span>'
+      : '<span class="dot dot-amber"></span><span class="amber">Not detected</span>';
+
+    document.getElementById('print-count').textContent = s.printCount || 0;
+    document.getElementById('last-print').textContent  = s.lastPrintAt
+      ? new Date(s.lastPrintAt).toLocaleString()
+      : '—';
+
+    // Buttons
+    document.getElementById('btn-start').disabled = s.serverRunning;
+    document.getElementById('btn-stop').disabled  = !s.serverRunning;
+  }
+
+  async function startSrv() {
+    await window.posbridge.startServer();
+    setTimeout(refresh, 300);
+  }
+
+  async function stopSrv() {
+    await window.posbridge.stopServer();
+    setTimeout(refresh, 300);
+  }
+
+  // Auto-refresh every 3 seconds
+  refresh();
+  setInterval(refresh, 3000);
+</script>
+</body>
+</html>
