@@ -1,0 +1,42 @@
+name: Build POS Bridge (Windows)
+
+# Triggers: push to main/master OR manually from the Actions tab
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      # 1. Check out the pos-bridge folder
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Set up Node 18 (LTS)
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      # 3. Install dependencies
+      #    On windows-latest, any native modules compile correctly for Windows x64
+      - name: Install dependencies
+        run: npm ci
+
+      # 4. Build the Windows installer
+      - name: Build Windows installer
+        run: npm run build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 5. Upload the .exe as a downloadable artifact
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: POS-Bridge-Windows-Setup
+          path: dist/*.exe
+          retention-days: 30

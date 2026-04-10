@@ -3,7 +3,13 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('posbridge', {
-  getStatus:   () => ipcRenderer.invoke('get-status'),
-  startServer: () => ipcRenderer.invoke('start-server'),
-  stopServer:  () => ipcRenderer.invoke('stop-server'),
+  // Server control
+  getStatus:    () => ipcRenderer.invoke('get-status'),
+  startServer:  () => ipcRenderer.invoke('start-server'),
+  stopServer:   () => ipcRenderer.invoke('stop-server'),
+
+  // Printer selection
+  listPrinters:  ()     => ipcRenderer.invoke('list-printers'),
+  getPrinter:    ()     => ipcRenderer.invoke('get-printer'),
+  setPrinter:    (name) => ipcRenderer.invoke('set-printer', name),
 });

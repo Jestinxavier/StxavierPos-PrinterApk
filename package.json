@@ -36,9 +36,7 @@
   "dependencies": {
     "auto-launch": "^5.0.6",
     "cors": "^2.8.5",
-    "escpos": "^3.0.0-alpha.6",
-    "escpos-network": "^3.0.0-alpha.4",
-    "escpos-usb": "^3.0.0-alpha.4",
+    "dotenv": "^17.4.1",
     "express": "^4.18.2",
     "selfsigned": "^5.5.0",
     "winston": "^3.11.0"

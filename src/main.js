@@ -5,7 +5,9 @@ const { app, Tray, Menu, nativeImage, BrowserWindow, ipcMain, dialog } = require
 const path = require('path');
 const AutoLaunch = require('auto-launch');
 const { startServer, stopServer, getServerStatus, getBridgeConfig } = require('./server');
+const { listWindowsPrinters, getSelectedPrinter, setSelectedPrinter } = require('./printer');
 const logger = require('./logger');
+require('dotenv').config();
 
 // ─── Prevent multiple instances ───────────────────────────────────────────────
 const gotLock = app.requestSingleInstanceLock();
@@ -215,6 +217,20 @@ ipcMain.handle('stop-server', async () => {
   await stopBridge();
   refreshTray();
   return { serverRunning };
+});
+
+// ─── Printer picker IPC ───────────────────────────────────────────────────────
+ipcMain.handle('list-printers', () => {
+  try { return listWindowsPrinters(); }
+  catch (err) { logger.error('list-printers error:', err.message); return []; }
+});
+
+ipcMain.handle('get-printer', () => getSelectedPrinter());
+
+ipcMain.handle('set-printer', (_, name) => {
+  setSelectedPrinter(name);
+  refreshTray();
+  return { ok: true };
 });
 
 // ─── App Lifecycle ────────────────────────────────────────────────────────────

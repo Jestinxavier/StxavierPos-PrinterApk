@@ -1,281 +1,348 @@
-// printer.js — ESC/POS Printer & Cash Drawer Integration
+// printer.js — Windows Native Printing (no native .node modules)
+// Uses PowerShell + Win32 winspool.drv to send raw ESC/POS bytes to any
+// Windows-registered printer (USB, network, virtual, etc.)
 
-const logger = require('./logger');
+const { execSync }  = require('child_process');
+const fs            = require('fs');
+const os            = require('os');
+const path          = require('path');
+const logger        = require('./logger');
 
-// ─── Config ───────────────────────────────────────────────────────────────────
+// ─── Settings: persist the selected printer ────────────────────────────────────
+function getSettingsPath() {
+  const { app } = require('electron');
+  return path.join(app.getPath('userData'), 'printer-settings.json');
+}
+
+function loadSettings() {
+  try { return JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8')); }
+  catch { return {}; }
+}
+
+function saveSettings(settings) {
+  try { fs.writeFileSync(getSettingsPath(), JSON.stringify(settings, null, 2)); }
+  catch (err) { logger.error('Failed to save settings:', err.message); }
+}
+
+function getSelectedPrinter() {
+  return loadSettings().selectedPrinter || null;
+}
+
+function setSelectedPrinter(name) {
+  const settings = loadSettings();
+  settings.selectedPrinter = name;
+  saveSettings(settings);
+  logger.info(`Printer selection saved: "${name}"`);
+}
+
+// ─── List all Windows printers (friendly names) ────────────────────────────────
+function listWindowsPrinters() {
+  try {
+    const out = execSync(
+      'powershell -NoProfile -Command "Get-Printer | Select-Object -ExpandProperty Name"',
+      { timeout: 8000, encoding: 'utf-8' }
+    );
+    return out.trim().split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  } catch (err) {
+    logger.error('listWindowsPrinters failed:', err.message);
+    return [];
+  }
+}
+
+// ─── Check if selected printer is available ────────────────────────────────────
+async function checkPrinterStatus() {
+  try {
+    const selected  = getSelectedPrinter();
+    const available = listWindowsPrinters();
+    if (selected) return available.includes(selected);
+    return available.length > 0;
+  } catch { return false; }
+}
+
+// ─── Config ────────────────────────────────────────────────────────────────────
 const SHOP_NAME    = 'St Xavier Oils';
 const SHOP_ADDRESS = 'Your Address Here';
 const SHOP_PHONE   = 'Phone: +91-XXXXXXXXXX';
-const SHOP_GST     = '';                  // Set GST number if needed, e.g. 'GSTIN: 29XXXXX'
-const PAPER_WIDTH  = 48;                  // characters per line on 80mm paper
-const CURRENCY     = '₹';
+const SHOP_GST     = '';           // e.g. 'GSTIN: 29XXXXX'
+const PAPER_WIDTH  = 48;          // characters per line on 80mm paper
+const CURRENCY     = 'Rs.';       // ASCII-safe (₹ not in CP437)
 
-// ─── Lazy-load escpos so Electron doesn't crash if module is missing ──────────
-function loadEscpos() {
-  try {
-    const escpos = require('escpos');
-    escpos.USB    = require('escpos-usb');
-    escpos.Network = require('escpos-network');
-    return escpos;
-  } catch (err) {
-    throw new Error(
-      `escpos library not found. Run: npm install escpos escpos-usb escpos-network\n(${err.message})`
-    );
-  }
-}
-
-// ─── Get USB Device ───────────────────────────────────────────────────────────
-function getUsbDevice(escpos) {
-  const devices = escpos.USB.findPrinter();
-  if (!devices || devices.length === 0) {
-    throw new Error('No USB thermal printer found. Check USB connection and power.');
-  }
-  // Use first found device; pass vendorId/productId to target a specific printer
-  return new escpos.USB(devices[0].deviceDescriptor.idVendor, devices[0].deviceDescriptor.idProduct);
-}
-
-// ─── Check Printer Status ─────────────────────────────────────────────────────
-async function checkPrinterStatus() {
-  return new Promise((resolve) => {
-    try {
-      const escpos  = loadEscpos();
-      const devices = escpos.USB.findPrinter();
-      resolve(Array.isArray(devices) && devices.length > 0);
-    } catch {
-      resolve(false);
-    }
-  });
-}
-
-// ─── Formatting Helpers ───────────────────────────────────────────────────────
-function repeat(char, n) {
-  return char.repeat(Math.max(0, n));
-}
-
-function center(text, width) {
-  const pad = Math.max(0, Math.floor((width - text.length) / 2));
-  return repeat(' ', pad) + text;
-}
+// ─── Formatting Helpers ────────────────────────────────────────────────────────
+function rep(ch, n) { return ch.repeat(Math.max(0, n)); }
 
 function lineItem(label, value, width) {
-  const valStr = String(value);
-  const labelWidth = width - valStr.length;
-  const truncated = label.length > labelWidth - 1
-    ? label.slice(0, labelWidth - 2) + '…'
-    : label;
-  return truncated + repeat(' ', labelWidth - truncated.length) + valStr;
+  const val = String(value);
+  const room = width - val.length;
+  const lbl  = label.length > room - 1 ? label.slice(0, room - 2) + '~' : label;
+  return lbl + rep(' ', room - lbl.length) + val;
 }
 
-function formatCurrency(amount) {
+function fmtCurrency(amount) {
   return `${CURRENCY}${parseFloat(amount || 0).toFixed(2)}`;
 }
 
-function formatDate(d) {
+function fmtDate(d) {
   d = d ? new Date(d) : new Date();
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}  ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const z = n => String(n).padStart(2, '0');
+  return `${z(d.getDate())}/${z(d.getMonth() + 1)}/${d.getFullYear()}  ${z(d.getHours())}:${z(d.getMinutes())}`;
 }
 
-// ─── Print Receipt ────────────────────────────────────────────────────────────
-function printReceipt(data) {
-  return new Promise((resolve, reject) => {
-    let escpos;
-    try {
-      escpos = loadEscpos();
-    } catch (err) {
-      return reject(err);
-    }
+// ─── Pure-JS ESC/POS document builder (no external library) ───────────────────
+const ESC = 0x1B;
+const GS  = 0x1D;
+const LF  = 0x0A;
 
-    let device;
-    try {
-      device = getUsbDevice(escpos);
-    } catch (err) {
-      return reject(err);
-    }
-
-    const printer = new escpos.Printer(device);
-    const sep     = repeat('─', PAPER_WIDTH);
-    const sepDash = repeat('-', PAPER_WIDTH);
-
-    const shopName    = data.shopName    || SHOP_NAME;
-    const invoiceNo   = data.invoiceNo   || `INV-${Date.now()}`;
-    const cashier     = data.cashier     || '';
-    const items       = data.items       || [];
-    const subtotal    = data.subtotal    !== undefined ? data.subtotal : data.total;
-    const discount    = data.discount    || 0;
-    const tax         = data.tax         || 0;
-    const total       = data.total       || 0;
-    const payMethod   = data.paymentMethod || 'CASH';
-    const amountPaid  = data.amountPaid  || total;
-    const change      = data.change      !== undefined ? data.change : (amountPaid - total);
-    const note        = data.note        || '';
-
-    device.open((err) => {
-      if (err) {
-        logger.error('Cannot open USB device:', err.message);
-        return reject(new Error(`Cannot open printer: ${err.message}`));
-      }
-
-      try {
-        printer
-          // ── Header ──
-          .align('ct')
-          .style('b')
-          .size(1, 1)
-          .text(shopName)
-          .style('normal')
-          .size(0, 0);
-
-        if (SHOP_ADDRESS) printer.text(SHOP_ADDRESS);
-        if (SHOP_PHONE)   printer.text(SHOP_PHONE);
-        if (SHOP_GST)     printer.text(SHOP_GST);
-
-        printer
-          .text(sep)
-
-          // ── Invoice meta ──
-          .align('lt')
-          .text(`Invoice : ${invoiceNo}`)
-          .text(`Date    : ${formatDate(data.date)}`)
-
-        if (cashier) printer.text(`Cashier : ${cashier}`);
-
-        printer
-          .text(sep)
-
-          // ── Column headers ──
-          .style('b')
-          .text(
-            'ITEM'.padEnd(24) +
-            'QTY'.padStart(6) +
-            'PRICE'.padStart(9) +
-            'AMT'.padStart(9)
-          )
-          .style('normal')
-          .text(sepDash);
-
-        // ── Line items ──
-        for (const item of items) {
-          const qty   = parseFloat(item.qty   || item.quantity || 1);
-          const price = parseFloat(item.price || item.rate     || 0);
-          const amt   = parseFloat(item.amount || (qty * price));
-          const name  = String(item.name || item.item || 'Item');
-
-          // Wrap long names
-          if (name.length <= 24) {
-            printer.text(
-              name.padEnd(24) +
-              String(qty).padStart(6) +
-              formatCurrency(price).padStart(9) +
-              formatCurrency(amt).padStart(9)
-            );
-          } else {
-            // First line: name (truncated) + values
-            printer.text(
-              name.slice(0, 23).padEnd(24) +
-              String(qty).padStart(6) +
-              formatCurrency(price).padStart(9) +
-              formatCurrency(amt).padStart(9)
-            );
-            // Continuation lines for long names
-            let remaining = name.slice(23);
-            while (remaining.length > 0) {
-              printer.text('  ' + remaining.slice(0, 46));
-              remaining = remaining.slice(46);
-            }
-          }
-        }
-
-        printer.text(sepDash);
-
-        // ── Totals ──
-        printer
-          .align('rt')
-          .text(lineItem('Subtotal', formatCurrency(subtotal), PAPER_WIDTH));
-
-        if (discount > 0) {
-          printer.text(lineItem('Discount', `-${formatCurrency(discount)}`, PAPER_WIDTH));
-        }
-        if (tax > 0) {
-          printer.text(lineItem('Tax/GST', formatCurrency(tax), PAPER_WIDTH));
-        }
-
-        printer
-          .text(sep)
-          .style('b')
-          .size(1, 1)
-          .text(lineItem('TOTAL', formatCurrency(total), PAPER_WIDTH))
-          .size(0, 0)
-          .style('normal')
-          .text(sep)
-
-          // ── Payment ──
-          .text(lineItem('Payment', payMethod,              PAPER_WIDTH))
-          .text(lineItem('Paid',    formatCurrency(amountPaid), PAPER_WIDTH))
-          .text(lineItem('Change',  formatCurrency(change),    PAPER_WIDTH))
-          .text(sep);
-
-        // ── Note ──
-        if (note) {
-          printer
-            .align('ct')
-            .text(note)
-            .text(sep);
-        }
-
-        // ── Footer ──
-        printer
-          .align('ct')
-          .text('Thank you for your purchase!')
-          .text('Visit us again')
-          .text('')
-          .text('')
-
-          // ── Cut ──
-          .cut('full')
-          .close(() => resolve());
-
-      } catch (printErr) {
-        logger.error('ESC/POS printing error:', printErr.message);
-        try { printer.close(); } catch {}
-        reject(new Error(`Printing failed: ${printErr.message}`));
-      }
-    });
-  });
+function encodeText(str) {
+  const bytes = [];
+  for (let i = 0; i < str.length; i++) {
+    const c = str.charCodeAt(i);
+    if (c < 128) bytes.push(c);
+    else bytes.push(0x3F); // '?' fallback for chars outside ASCII
+  }
+  return bytes;
 }
 
-// ─── Open Cash Drawer ─────────────────────────────────────────────────────────
-function openCashDrawer() {
-  return new Promise((resolve, reject) => {
-    let escpos;
-    try {
-      escpos = loadEscpos();
-    } catch (err) {
-      return reject(err);
-    }
+class EscPos {
+  constructor() { this.buf = []; }
 
-    let device;
-    try {
-      device = getUsbDevice(escpos);
-    } catch (err) {
-      return reject(err);
-    }
+  init()          { this.buf.push(ESC, 0x40);        return this; }
+  left()          { this.buf.push(ESC, 0x61, 0);     return this; }
+  center()        { this.buf.push(ESC, 0x61, 1);     return this; }
+  right()         { this.buf.push(ESC, 0x61, 2);     return this; }
+  boldOn()        { this.buf.push(ESC, 0x45, 1);     return this; }
+  boldOff()       { this.buf.push(ESC, 0x45, 0);     return this; }
+  doubleOn()      { this.buf.push(GS,  0x21, 0x11);  return this; } // 2× width+height
+  doubleOff()     { this.buf.push(GS,  0x21, 0x00);  return this; }
+  lf()            { this.buf.push(LF);               return this; }
+  text(s)         { this.buf.push(...encodeText(s));  return this; }
+  line(s)         { return this.text(s).lf(); }
 
-    const printer = new escpos.Printer(device);
+  cut() {
+    // Feed a few lines then full cut
+    this.buf.push(LF, LF, LF, GS, 0x56, 0x41, 0x00);
+    return this;
+  }
 
-    device.open((err) => {
-      if (err) return reject(new Error(`Cannot open printer for drawer: ${err.message}`));
+  cashDrawer() {
+    // ESC p 0 <on-time> <off-time> — pin 2 pulse
+    this.buf.push(ESC, 0x70, 0x00, 0x3C, 0x78);
+    return this;
+  }
 
-      try {
-        printer
-          .cashdraw(2)   // Pin 2 (most common)
-          .close(() => resolve());
-      } catch (e) {
-        try { printer.close(); } catch {}
-        reject(new Error(`Cash drawer error: ${e.message}`));
-      }
-    });
-  });
+  toBuffer() { return Buffer.from(this.buf); }
 }
 
-module.exports = { printReceipt, openCashDrawer, checkPrinterStatus };
+// ─── Build receipt ESC/POS buffer ─────────────────────────────────────────────
+function buildReceiptBuffer(data) {
+  const doc  = new EscPos();
+  const sep  = rep('-', PAPER_WIDTH);
+  const sep2 = rep('=', PAPER_WIDTH);
+
+  const shopName   = data.shopName       || SHOP_NAME;
+  const invoiceNo  = data.invoiceNo      || `INV-${Date.now()}`;
+  const cashier    = data.cashier        || '';
+  const items      = data.items          || [];
+  const subtotal   = data.subtotal       !== undefined ? data.subtotal : data.total;
+  const discount   = data.discount       || 0;
+  const tax        = data.tax            || 0;
+  const total      = data.total          || 0;
+  const payMethod  = data.paymentMethod  || 'CASH';
+  const amountPaid = data.amountPaid     || total;
+  const change     = data.change         !== undefined ? data.change : (amountPaid - total);
+  const note       = data.note           || '';
+
+  // ── Header ──
+  doc.init()
+     .center().boldOn().doubleOn()
+     .line(shopName)
+     .doubleOff().boldOff();
+
+  if (SHOP_ADDRESS) doc.line(SHOP_ADDRESS);
+  if (SHOP_PHONE)   doc.line(SHOP_PHONE);
+  if (SHOP_GST)     doc.line(SHOP_GST);
+
+  doc.line(sep)
+     .left()
+     .line(`Invoice : ${invoiceNo}`)
+     .line(`Date    : ${fmtDate(data.date)}`);
+
+  if (cashier) doc.line(`Cashier : ${cashier}`);
+
+  // ── Column headers ──
+  doc.line(sep)
+     .boldOn()
+     .line('ITEM'.padEnd(24) + 'QTY'.padStart(6) + 'PRICE'.padStart(9) + 'AMT'.padStart(9))
+     .boldOff()
+     .line(sep);
+
+  // ── Line items ──
+  for (const item of items) {
+    const qty   = parseFloat(item.qty   || item.quantity || 1);
+    const price = parseFloat(item.price || item.rate     || 0);
+    const amt   = parseFloat(item.amount || (qty * price));
+    const name  = String(item.name || item.item || 'Item');
+
+    if (name.length <= 24) {
+      doc.line(
+        name.padEnd(24) +
+        String(qty).padStart(6) +
+        fmtCurrency(price).padStart(9) +
+        fmtCurrency(amt).padStart(9)
+      );
+    } else {
+      doc.line(
+        name.slice(0, 23).padEnd(24) +
+        String(qty).padStart(6) +
+        fmtCurrency(price).padStart(9) +
+        fmtCurrency(amt).padStart(9)
+      );
+      let rest = name.slice(23);
+      while (rest.length > 0) {
+        doc.line('  ' + rest.slice(0, 46));
+        rest = rest.slice(46);
+      }
+    }
+  }
+
+  doc.line(sep);
+
+  // ── Totals ──
+  doc.right().line(lineItem('Subtotal', fmtCurrency(subtotal), PAPER_WIDTH));
+  if (discount > 0) doc.line(lineItem('Discount', `-${fmtCurrency(discount)}`, PAPER_WIDTH));
+  if (tax > 0)      doc.line(lineItem('Tax/GST',  fmtCurrency(tax),            PAPER_WIDTH));
+
+  doc.line(sep2)
+     .boldOn().doubleOn()
+     .line(lineItem('TOTAL', fmtCurrency(total), PAPER_WIDTH))
+     .doubleOff().boldOff()
+     .line(sep2)
+     .line(lineItem('Payment', payMethod,              PAPER_WIDTH))
+     .line(lineItem('Paid',    fmtCurrency(amountPaid), PAPER_WIDTH))
+     .line(lineItem('Change',  fmtCurrency(change),    PAPER_WIDTH))
+     .line(sep);
+
+  // ── Note / Footer ──
+  if (note) doc.center().line(note).line(sep);
+
+  doc.center()
+     .lf()
+     .line('Thank you for your purchase!')
+     .line('Visit us again')
+     .lf().lf()
+     .cut();
+
+  return doc.toBuffer();
+}
+
+// ─── PowerShell raw-print script (inline, no external .ps1 file at rest) ──────
+// Uses Win32 winspool.drv via P/Invoke — works with ANY Windows-registered printer
+function buildPs1(printerName, escFile) {
+  // Escape backslashes in paths for PowerShell double-quoted strings
+  const pn = printerName.replace(/'/g, "''");
+  const fp = escFile.replace(/\\/g, '\\\\');
+
+  return `
+$ErrorActionPreference = 'Stop'
+$bytes = [System.IO.File]::ReadAllBytes('${fp}')
+
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public class RawPrint {
+    [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Ansi)]
+    public class DOCINFOA {
+        [MarshalAs(UnmanagedType.LPStr)] public string pDocName;
+        [MarshalAs(UnmanagedType.LPStr)] public string pOutputFile;
+        [MarshalAs(UnmanagedType.LPStr)] public string pDataType;
+    }
+    [DllImport("winspool.Drv", SetLastError=true)]
+    public static extern bool OpenPrinter(string n, out IntPtr h, IntPtr d);
+    [DllImport("winspool.Drv", SetLastError=true)]
+    public static extern bool StartDocPrinter(IntPtr h, int lv, [In,MarshalAs(UnmanagedType.LPStruct)] DOCINFOA di);
+    [DllImport("winspool.Drv", SetLastError=true)]
+    public static extern bool StartPagePrinter(IntPtr h);
+    [DllImport("winspool.Drv", SetLastError=true)]
+    public static extern bool WritePrinter(IntPtr h, IntPtr p, int c, out int w);
+    [DllImport("winspool.Drv", SetLastError=true)]
+    public static extern bool EndPagePrinter(IntPtr h);
+    [DllImport("winspool.Drv", SetLastError=true)]
+    public static extern bool EndDocPrinter(IntPtr h);
+    [DllImport("winspool.Drv", SetLastError=true)]
+    public static extern bool ClosePrinter(IntPtr h);
+}
+'@
+
+$h = [IntPtr]::Zero
+if (-not [RawPrint]::OpenPrinter('${pn}', [ref]$h, [IntPtr]::Zero)) {
+    throw "Cannot open printer '${pn}'. Check it is installed in Windows."
+}
+$di = New-Object RawPrint+DOCINFOA
+$di.pDocName  = 'POS-Receipt'
+$di.pDataType = 'RAW'
+[RawPrint]::StartDocPrinter($h, 1, $di) | Out-Null
+[RawPrint]::StartPagePrinter($h)        | Out-Null
+$ptr = [System.Runtime.InteropServices.Marshal]::AllocHGlobal($bytes.Length)
+[System.Runtime.InteropServices.Marshal]::Copy($bytes, 0, $ptr, $bytes.Length)
+$w = 0
+[RawPrint]::WritePrinter($h, $ptr, $bytes.Length, [ref]$w) | Out-Null
+[System.Runtime.InteropServices.Marshal]::FreeHGlobal($ptr)
+[RawPrint]::EndPagePrinter($h)  | Out-Null
+[RawPrint]::EndDocPrinter($h)   | Out-Null
+[RawPrint]::ClosePrinter($h)    | Out-Null
+`;
+}
+
+// ─── Send a buffer to a Windows printer via PowerShell ────────────────────────
+function rawPrint(printerName, buffer) {
+  const tmp    = os.tmpdir();
+  const stamp  = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const escFile = path.join(tmp, `pos-receipt-${stamp}.esc`);
+  const ps1File = path.join(tmp, `pos-print-${stamp}.ps1`);
+
+  try {
+    fs.writeFileSync(escFile, buffer);
+    fs.writeFileSync(ps1File, buildPs1(printerName, escFile), 'utf-8');
+
+    const result = execSync(
+      `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${ps1File}"`,
+      { timeout: 20000, encoding: 'utf-8' }
+    );
+    if (result) logger.info('PS print output:', result.trim());
+
+  } finally {
+    try { fs.unlinkSync(escFile); } catch {}
+    try { fs.unlinkSync(ps1File); } catch {}
+  }
+}
+
+// ─── Public: Print Receipt ────────────────────────────────────────────────────
+async function printReceipt(data) {
+  const printerName = getSelectedPrinter();
+  if (!printerName) {
+    throw new Error('No printer selected. Open POS Bridge status window and select a printer.');
+  }
+  logger.info(`Print job → printer: "${printerName}"`);
+  rawPrint(printerName, buildReceiptBuffer(data));
+  logger.info('Receipt sent to printer successfully.');
+}
+
+// ─── Public: Open Cash Drawer ─────────────────────────────────────────────────
+async function openCashDrawer() {
+  const printerName = getSelectedPrinter();
+  if (!printerName) {
+    throw new Error('No printer selected. Open POS Bridge status window and select a printer.');
+  }
+  logger.info(`Cash drawer → printer: "${printerName}"`);
+  const doc = new EscPos();
+  rawPrint(printerName, doc.init().cashDrawer().toBuffer());
+  logger.info('Cash drawer pulse sent.');
+}
+
+module.exports = {
+  printReceipt,
+  openCashDrawer,
+  checkPrinterStatus,
+  listWindowsPrinters,
+  getSelectedPrinter,
+  setSelectedPrinter,
+};
