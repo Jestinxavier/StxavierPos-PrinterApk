@@ -14,13 +14,17 @@ jobs:
       # 1. Check out the pos-bridge folder
       - name: Checkout repository
         uses: actions/checkout@v4
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-      # 2. Set up Node 18 (LTS)
+      # 2. Set up Node 20 (LTS)
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'npm'
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
       # 3. Install dependencies
       #    On windows-latest, any native modules compile correctly for Windows x64
@@ -40,3 +44,5 @@ jobs:
           name: POS-Bridge-Windows-Setup
           path: dist/*.exe
           retention-days: 30
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
