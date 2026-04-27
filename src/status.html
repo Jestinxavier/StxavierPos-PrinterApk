@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>POS Bridge Status</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Sora:wght@400;600;700&display=swap');
+
+  :root {
+    --bg:      #0f1117;
+    --surface: #1a1d27;
+    --border:  #2a2d3a;
+    --green:   #22c55e;
+    --red:     #ef4444;
+    --amber:   #f59e0b;
+    --blue:    #3b82f6;
+    --purple:  #a855f7;
+    --text:    #e2e8f0;
+    --muted:   #64748b;
+    --radius:  10px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Sora', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    border-radius: 14px;
+    overflow: hidden;
+    user-select: none;
+    -webkit-app-region: drag;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .titlebar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .titlebar h1 { font-size: 14px; font-weight: 700; letter-spacing: .05em; }
+  .titlebar span { font-size: 11px; color: var(--muted); }
+
+  .close-btn {
+    -webkit-app-region: no-drag;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--red); border: none; cursor: pointer;
+    font-size: 13px; color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    opacity: .8; transition: opacity .15s;
+  }
+  .close-btn:hover { opacity: 1; }
+
+  .content {
+    flex: 1;
+    padding: 14px 18px 18px;
+    overflow-y: auto;
+    -webkit-app-region: no-drag;
+  }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    margin-bottom: 10px;
+  }
+
+  .card-label {
+    font-size: 10px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .12em;
+    color: var(--muted); margin-bottom: 10px;
+  }
+
+  /* ── Status rows ── */
+  .status-row {
+    display: flex; align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .status-row:last-child { margin-bottom: 0; }
+  .status-key  { font-size: 13px; color: var(--muted); }
+  .status-val  { font-size: 13px; font-weight: 600; font-family: 'JetBrains Mono', monospace; }
+
+  /* ── Dot indicators ── */
+  .dot {
+    display: inline-block; width: 8px; height: 8px;
+    border-radius: 50%; margin-right: 6px;
+  }
+  .dot-green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .dot-red   { background: var(--red);   box-shadow: 0 0 6px var(--red); }
+  .dot-amber { background: var(--amber); box-shadow: 0 0 4px var(--amber); }
+
+  .green  { color: var(--green); }
+  .red    { color: var(--red); }
+  .amber  { color: var(--amber); }
+  .blue   { color: var(--blue); }
+  .purple { color: var(--purple); }
+
+  /* ── Printer picker ── */
+  .printer-picker {
+    display: flex; gap: 8px; align-items: center;
+    margin-top: 6px;
+  }
+
+  select#printer-select {
+    -webkit-app-region: no-drag;
+    flex: 1;
+    background: #0a0d14;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    padding: 8px 10px;
+    outline: none;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s;
+  }
+  select#printer-select:focus { border-color: var(--blue); }
+  select#printer-select option { background: #1a1d27; }
+
+  .btn-small {
+    -webkit-app-region: no-drag;
+    border: none; border-radius: 7px;
+    padding: 8px 13px;
+    font-size: 11px; font-weight: 600;
+    font-family: 'Sora', sans-serif;
+    cursor: pointer;
+    transition: opacity .15s, transform .1s;
+    white-space: nowrap;
+  }
+  .btn-small:hover  { opacity: .85; }
+  .btn-small:active { transform: scale(.97); }
+  .btn-detect  { background: var(--border); color: var(--text); }
+  .btn-save    { background: var(--blue);   color: #fff; }
+  .btn-save:disabled { opacity: .4; cursor: not-allowed; }
+
+  .printer-saved {
+    font-size: 11px; color: var(--muted);
+    margin-top: 6px; font-family: 'JetBrains Mono', monospace;
+  }
+  .printer-saved b { color: var(--purple); }
+
+  /* ── Buttons ── */
+  .btn-row { display: flex; gap: 10px; margin-top: 4px; }
+
+  button.btn-main {
+    -webkit-app-region: no-drag;
+    border: none; border-radius: 7px;
+    padding: 9px 16px; font-size: 12px; font-weight: 600;
+    font-family: 'Sora', sans-serif; cursor: pointer;
+    transition: opacity .15s, transform .1s; flex: 1;
+  }
+  button.btn-main:hover  { opacity: .85; }
+  button.btn-main:active { transform: scale(.97); }
+  .btn-start   { background: var(--green);  color: #000; }
+  .btn-stop    { background: var(--red);    color: #fff; }
+  .btn-refresh { background: var(--border); color: var(--text); }
+
+  /* ── Code box ── */
+  .endpoint-box {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; background: #0a0d14;
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 10px 12px; color: var(--blue);
+    margin-top: 4px; line-height: 1.7;
+  }
+
+  /* ── Animations ── */
+  .pulse { animation: pulse 2s infinite; }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.4; }
+  }
+
+  .spin { animation: spin 1s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Toast ── */
+  #toast {
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 16px;
+    font-size: 12px; color: var(--text);
+    opacity: 0; transition: opacity .25s;
+    pointer-events: none; white-space: nowrap;
+  }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div class="titlebar">
+  <h1>🖨 POS Bridge</h1>
+  <span>v1.0.0</span>
+  <button class="close-btn" onclick="window.close()">✕</button>
+</div>
+
+<div class="content">
+
+  <!-- Service Status -->
+  <div class="card">
+    <div class="card-label">Service Status</div>
+    <div class="status-row">
+      <span class="status-key">Bridge Server</span>
+      <span class="status-val" id="srv-status">—</span>
+    </div>
+    <div class="status-row">
+      <span class="status-key">Listening on</span>
+      <span class="status-val blue" id="srv-port">—</span>
+    </div>
+    <div class="status-row">
+      <span class="status-key">Printer</span>
+      <span class="status-val" id="printer-status">—</span>
+    </div>
+    <div class="status-row">
+      <span class="status-key">Receipts printed</span>
+      <span class="status-val" id="print-count">0</span>
+    </div>
+    <div class="status-row">
+      <span class="status-key">Last print</span>
+      <span class="status-val muted" id="last-print" style="font-size:11px;">—</span>
+    </div>
+  </div>
+
+  <!-- Printer Selection -->
+  <div class="card">
+    <div class="card-label">🖨 Printer Selection</div>
+
+    <div class="status-row" style="margin-bottom:8px;">
+      <span class="status-key">Active Printer</span>
+      <span class="status-val purple" id="active-printer">Not set</span>
+    </div>
+
+    <div class="printer-picker">
+      <select id="printer-select">
+        <option value="">— Click Detect to load printers —</option>
+      </select>
+      <button class="btn-small btn-detect" id="btn-detect" onclick="detectPrinters()">🔍 Detect</button>
+      <button class="btn-small btn-save"   id="btn-save"   onclick="savePrinter()" disabled>💾 Save</button>
+    </div>
+
+    <div class="printer-saved" id="printer-hint">
+      Select your thermal printer and click Save.
+    </div>
+  </div>
+
+  <!-- API Endpoints -->
+  <div class="card">
+    <div class="card-label">API Endpoints</div>
+    <div class="endpoint-box" id="endpoint-box">
+      GET  http://localhost:3000/status<br>
+      POST http://localhost:3000/print<br>
+      POST http://localhost:3000/cashdrawer
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="card">
+    <div class="card-label">Controls</div>
+    <div class="btn-row">
+      <button class="btn-main btn-start"   id="btn-start"   onclick="startSrv()">▶ Start</button>
+      <button class="btn-main btn-stop"    id="btn-stop"    onclick="stopSrv()">■ Stop</button>
+      <button class="btn-main btn-refresh" onclick="refresh()">↻ Refresh</button>
+    </div>
+  </div>
+
+</div>
+
+<div id="toast"></div>
+
+<script>
+  // ── Toast helper ──────────────────────────────────────────────────────────────
+  function showToast(msg, ms = 2500) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), ms);
+  }
+
+  // ── Refresh service status ────────────────────────────────────────────────────
+  async function refresh() {
+    const s = await window.posbridge.getStatus();
+    const bridgeUrl   = s.bridge?.url   || 'http://localhost:3000';
+    const bridgeLabel = s.bridge
+      ? `localhost:${s.bridge.port} (${(s.bridge.protocol || 'http').toUpperCase()})`
+      : 'localhost:3000';
+
+    // Server row
+    document.getElementById('srv-status').innerHTML = s.serverRunning
+      ? '<span class="dot dot-green pulse"></span><span class="green">Running</span>'
+      : '<span class="dot dot-red"></span><span class="red">Stopped</span>';
+
+    document.getElementById('srv-port').textContent = s.serverRunning ? bridgeLabel : '—';
+
+    document.getElementById('endpoint-box').innerHTML = [
+      `GET  ${bridgeUrl}/status`,
+      `POST ${bridgeUrl}/print`,
+      `POST ${bridgeUrl}/cashdrawer`,
+    ].join('<br>');
+
+    // Printer connected row
+    const pEl = document.getElementById('printer-status');
+    pEl.innerHTML = s.printerConnected
+      ? '<span class="dot dot-green"></span><span class="green">Connected</span>'
+      : '<span class="dot dot-amber"></span><span class="amber">Not detected</span>';
+
+    document.getElementById('print-count').textContent = s.printCount || 0;
+    document.getElementById('last-print').textContent  = s.lastPrintAt
+      ? new Date(s.lastPrintAt).toLocaleString()
+      : '—';
+
+    document.getElementById('btn-start').disabled = s.serverRunning;
+    document.getElementById('btn-stop').disabled  = !s.serverRunning;
+
+    // Active printer label
+    await refreshActivePrinter();
+  }
+
+  // ── Show currently saved printer ─────────────────────────────────────────────
+  async function refreshActivePrinter() {
+    const current = await window.posbridge.getPrinter();
+    const el = document.getElementById('active-printer');
+    if (current) {
+      el.textContent = current;
+      el.className   = 'status-val green';
+    } else {
+      el.textContent = 'Not set';
+      el.className   = 'status-val amber';
+    }
+  }
+
+  // ── Detect / populate printer dropdown ───────────────────────────────────────
+  async function detectPrinters() {
+    const btn = document.getElementById('btn-detect');
+    btn.innerHTML = '<span class="spin">⟳</span> Scanning…';
+    btn.disabled  = true;
+
+    try {
+      const [printers, current] = await Promise.all([
+        window.posbridge.listPrinters(),
+        window.posbridge.getPrinter(),
+      ]);
+
+      const sel = document.getElementById('printer-select');
+      sel.innerHTML = '';
+
+      if (!printers || printers.length === 0) {
+        sel.innerHTML = '<option value="">No printers found — check Windows printers</option>';
+        document.getElementById('btn-save').disabled = true;
+        document.getElementById('printer-hint').innerHTML =
+          '⚠️ No printers found. Make sure the USB printer is plugged in and shows in <b>Control Panel → Devices and Printers</b>.';
+        return;
+      }
+
+      // Populate options
+      printers.forEach(name => {
+        const opt   = document.createElement('option');
+        opt.value   = name;
+        opt.textContent = name;
+        if (name === current) opt.selected = true;
+        sel.appendChild(opt);
+      });
+
+      // Pre-select the saved printer if found, else first
+      if (!current || !printers.includes(current)) {
+        sel.value = printers[0];
+      }
+
+      document.getElementById('btn-save').disabled = false;
+      document.getElementById('printer-hint').textContent =
+        `${printers.length} printer(s) found. Select yours and click Save.`;
+
+      showToast(`✅ Found ${printers.length} printer(s)`);
+
+    } catch (err) {
+      document.getElementById('printer-hint').textContent = '❌ Error: ' + err.message;
+      showToast('❌ Detection failed');
+    } finally {
+      btn.innerHTML = '🔍 Detect';
+      btn.disabled  = false;
+    }
+  }
+
+  // ── Save selected printer ─────────────────────────────────────────────────────
+  async function savePrinter() {
+    const sel  = document.getElementById('printer-select');
+    const name = sel.value;
+    if (!name) { showToast('⚠️ No printer selected'); return; }
+
+    const btn = document.getElementById('btn-save');
+    btn.textContent = 'Saving…';
+    btn.disabled    = true;
+
+    try {
+      await window.posbridge.setPrinter(name);
+      document.getElementById('active-printer').textContent = name;
+      document.getElementById('active-printer').className   = 'status-val green';
+      document.getElementById('printer-hint').innerHTML =
+        `✅ Saved: <b>${name}</b>`;
+      showToast(`✅ Printer saved: ${name}`);
+    } catch (err) {
+      showToast('❌ Save failed: ' + err.message);
+    } finally {
+      btn.textContent = '💾 Save';
+      btn.disabled    = false;
+    }
+  }
+
+  // ── Server controls ───────────────────────────────────────────────────────────
+  async function startSrv() {
+    await window.posbridge.startServer();
+    setTimeout(refresh, 300);
+  }
+
+  async function stopSrv() {
+    await window.posbridge.stopServer();
+    setTimeout(refresh, 300);
+  }
+
+  // Auto-refresh every 4 seconds
+  refresh();
+  setInterval(refresh, 4000);
+</script>
+</body>
+</html>
