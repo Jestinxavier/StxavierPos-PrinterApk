@@ -67,8 +67,8 @@ async function checkPrinterStatus() {
 
 // ─── Config ────────────────────────────────────────────────────────────────────
 const SHOP_NAME    = 'St Xavier Oils';
-const SHOP_ADDRESS = 'Your Address Here';
-const SHOP_PHONE   = 'Phone: +91-XXXXXXXXXX';
+const SHOP_ADDRESS = 'Puthevettuvazhi, Thrissur -5';
+const SHOP_PHONE   = 'Phone: +91-9447618750';
 const SHOP_GST     = '';           // e.g. 'GSTIN: 29XXXXX'
 const PAPER_WIDTH  = 48;          // characters per line on 80mm paper
 const CURRENCY     = 'Rs.';       // ASCII-safe (₹ not in CP437)
@@ -132,6 +132,27 @@ class EscPos {
   cashDrawer() {
     // ESC p 0 <on-time> <off-time> — pin 2 pulse
     this.buf.push(ESC, 0x70, 0x00, 0x3C, 0x78);
+    return this;
+  }
+
+  qrCode(url) {
+    const data = encodeText(url);
+    const len = data.length + 3;
+    const pL = len % 256;
+    const pH = Math.floor(len / 256);
+
+    this.buf.push(
+      // 1. Set QR Model 2
+      GS, 0x28, 0x6B, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00,
+      // 2. Set QR Size (6 is usually a good readable size)
+      GS, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x43, 0x06,
+      // 3. Set Error Correction Level M
+      GS, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x45, 0x31,
+      // 4. Store QR Data
+      GS, 0x28, 0x6B, pL, pH, 0x31, 0x50, 0x30, ...data,
+      // 5. Print QR Code
+      GS, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x51, 0x30
+    );
     return this;
   }
 
@@ -234,6 +255,11 @@ function buildReceiptBuffer(data) {
      .lf()
      .line('Thank you for your purchase!')
      .line('Visit us again')
+     .lf()
+     .line('--- Scan Me! ---')
+     .qrCode('https://www.stxavieroils.com')
+     .lf()
+     .line('If we use purity, you can see')
      .lf().lf()
      .cut();
 

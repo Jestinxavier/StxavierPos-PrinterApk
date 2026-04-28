@@ -102,7 +102,7 @@ app.get('/status', async (_req, res) => {
   res.json({
     ok:               true,
     service:          'POS Bridge',
-    version:          '1.0.0',
+    version:          '1.1.0',
     protocol:         BRIDGE_PROTOCOL,
     printerConnected: state.printerConnected,
     lastPrintAt:      state.lastPrintAt,
