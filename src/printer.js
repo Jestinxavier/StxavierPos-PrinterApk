@@ -72,6 +72,10 @@ const SHOP_PHONE   = 'Phone: +91-9447618750';
 const SHOP_GST     = '';           // e.g. 'GSTIN: 29XXXXX'
 const PAPER_WIDTH  = 48;          // characters per line on 80mm paper
 const CURRENCY     = 'Rs.';       // ASCII-safe (₹ not in CP437)
+const ITEM_COL_WIDTH = 26;
+const QTY_COL_WIDTH = 4;
+const PRICE_COL_WIDTH = 8;
+const AMT_COL_WIDTH = 8;
 
 // ─── Formatting Helpers ────────────────────────────────────────────────────────
 function rep(ch, n) { return ch.repeat(Math.max(0, n)); }
@@ -85,6 +89,10 @@ function lineItem(label, value, width) {
 
 function fmtCurrency(amount) {
   return `${CURRENCY}${parseFloat(amount || 0).toFixed(2)}`;
+}
+
+function fmtAmount(amount) {
+  return parseFloat(amount || 0).toFixed(2);
 }
 
 function fmtDate(d) {
@@ -198,7 +206,12 @@ function buildReceiptBuffer(data) {
   // ── Column headers ──
   doc.line(sep)
      .boldOn()
-     .line('ITEM'.padEnd(24) + 'QTY'.padStart(6) + 'PRICE'.padStart(9) + 'AMT'.padStart(9))
+     .line(
+       'ITEM'.padEnd(ITEM_COL_WIDTH) + ' ' +
+       'QTY'.padStart(QTY_COL_WIDTH) + ' ' +
+       'PRICE'.padStart(PRICE_COL_WIDTH) + ' ' +
+       'AMT'.padStart(AMT_COL_WIDTH)
+     )
      .boldOff()
      .line(sep);
 
@@ -209,24 +222,24 @@ function buildReceiptBuffer(data) {
     const amt   = parseFloat(item.amount || (qty * price));
     const name  = String(item.name || item.item || 'Item');
 
-    if (name.length <= 24) {
+    if (name.length <= ITEM_COL_WIDTH) {
       doc.line(
-        name.padEnd(24) +
-        String(qty).padStart(6) +
-        fmtCurrency(price).padStart(9) +
-        fmtCurrency(amt).padStart(9)
+        name.padEnd(ITEM_COL_WIDTH) + ' ' +
+        String(qty).padStart(QTY_COL_WIDTH) + ' ' +
+        fmtAmount(price).padStart(PRICE_COL_WIDTH) + ' ' +
+        fmtAmount(amt).padStart(AMT_COL_WIDTH)
       );
     } else {
       doc.line(
-        name.slice(0, 23).padEnd(24) +
-        String(qty).padStart(6) +
-        fmtCurrency(price).padStart(9) +
-        fmtCurrency(amt).padStart(9)
+        name.slice(0, ITEM_COL_WIDTH).padEnd(ITEM_COL_WIDTH) + ' ' +
+        String(qty).padStart(QTY_COL_WIDTH) + ' ' +
+        fmtAmount(price).padStart(PRICE_COL_WIDTH) + ' ' +
+        fmtAmount(amt).padStart(AMT_COL_WIDTH)
       );
-      let rest = name.slice(23);
+      let rest = name.slice(ITEM_COL_WIDTH);
       while (rest.length > 0) {
-        doc.line('  ' + rest.slice(0, 46));
-        rest = rest.slice(46);
+        doc.line('  ' + rest.slice(0, PAPER_WIDTH - 2));
+        rest = rest.slice(PAPER_WIDTH - 2);
       }
     }
   }
@@ -259,7 +272,7 @@ function buildReceiptBuffer(data) {
      .line('--- Scan Me! ---')
      .qrCode('https://www.stxavieroils.com')
      .lf()
-     .line('If we use purity, you can see')
+     .line('Purity You Can See')
      .lf().lf()
      .cut();
 
